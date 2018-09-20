@@ -1,0 +1,94 @@
+
+```{r, fig.height=5, fig.width=3}
+library(ggplot2)
+
+path1 <- 'TRUST3/'
+path2 <- 'iRep/'
+
+file.list1 <- list.files(path = path1)
+file.list1 <- grep('[^n].txt', file.list1 , value = T)
+file.list2 <- list.files(path2)
+
+sampleIDs <- c('FZ-20','FZ-83','FZ-94','FZ-97','FZ-116', 'FZ-122')
+
+getoverlap <- function(sampleID){
+
+  index2= grep(sampleID, file.list2)
+  sample1.rep <- read.csv2(file = paste(path2, file.list2[index2], sep = ''), sep = ',', stringsAsFactors = F)
+  sample1.rep$CDR3.nuc. <- toupper(sample1.rep$CDR3.nuc.)
+  sample1.rep$CDR3.pep. <- paste('C', sample1.rep$CDR3.pep., 'W', sep = '')
+  sample1.rep <- data.frame(sample1.rep, freq=sample1.rep$copy/sum(sample1.rep$copy))
+  
+  index1= grep(sampleID, file.list1)
+  sample1.trust <- read.delim2(file=paste(path1, file.list1[index1], sep = ''), stringsAsFactors = F)
+  sample1.trust$est_clonal_exp <- as.numeric(sample1.trust$est_clonal_exp)
+  sample1.trust <- data.frame(sample1.trust, freq=sample1.trust$est_clonal_exp/sum(sample1.trust$est_clonal_exp))
+  
+  #trim trust cdr3 dna
+  trust.dna <- NULL
+  for(i in 1:nrow(sample1.trust)){
+    line=sample1.trust[i, ]
+    dna=line$cdr3dna
+    if(is.na(line$Vgene)==F|substr(line$cdr3aa,1,1)=='C'){
+      dna=substr(dna, 4, nchar(dna))
+    }
+    if(is.na(line$Jgene)==F|substr(line$cdr3aa,nchar(line$cdr3aa),nchar(line$cdr3aa))=='W'){
+      dna=substr(dna, 1, nchar(dna)-3)
+    }
+    trust.dna <- c(trust.dna, dna)
+  }
+  
+  #check cdr3 dna intersection
+  data <- NULL
+  for( seq in intersect(sample1.rep$CDR3.nuc., trust.dna)){
+    repseq.freq <- sum(sample1.rep[which(sample1.rep$CDR3.nuc.==seq),'freq'])
+    trust.freq <- sum(sample1.trust[which(trust.dna==seq),'freq'])
+    data <- rbind(data, c(seq, repseq.freq, trust.freq))
+  }
+  colnames(data) <- c('seq', 'RepSeq.freq', 'TRUST.freq')
+  data <- data.frame(data, stringsAsFactors = F)
+  data[, "RepSeq.freq"] <- as.numeric(data[, "RepSeq.freq"])
+  data[, "TRUST.freq"] <- as.numeric(data[, "TRUST.freq"])
+
+  return(data)
+}
+
+data1 <- getoverlap(sampleIDs[1])
+data2 <- getoverlap(sampleIDs[2])
+data3 <- getoverlap(sampleIDs[3])
+data4 <- getoverlap(sampleIDs[4])
+data5 <- getoverlap(sampleIDs[5])
+data6 <- getoverlap(sampleIDs[6])
+
+data <- rbind(data.frame(data1, ID=sampleIDs[1]), data.frame(data2, ID=sampleIDs[2]),data.frame(data3, ID=sampleIDs[3]),
+              data.frame(data4, ID=sampleIDs[4]),data.frame(data5, ID=sampleIDs[5]),data.frame(data6, ID=sampleIDs[6]))
+
+scientific_10 <- function(x) {
+  parse(text=paste0("10^", log10(x)))
+}
+
+min_freq = 5e-5
+
+cor.data <- subset(data, RepSeq.freq>min_freq & TRUST.freq>min_freq)
+
+ggplot(cor.data, aes(RepSeq.freq, TRUST.freq))+
+  geom_point(alpha=0.3)+
+  geom_abline(intercept = 0, color='blue')+
+  scale_x_log10(limits = c(min_freq, 0.1), labels = scientific_10) +
+  scale_y_log10(limits = c(min_freq, 0.1), labels = scientific_10) +
+  xlab('BCR-seq Clonal Frequency') +
+  ylab('TRUST Clonal Frequency') +
+  theme_bw()+
+  theme(legend.position = 'top')+
+  facet_wrap(~ID, nrow = 3, scales = "fixed")
+
+res = NULL
+for(i in sampleIDs){
+  tmp <- subset(cor.data, ID==i)
+  pp <- cor.test(tmp$RepSeq.freq, tmp$TRUST.freq, method = 'pearson')
+  res <- rbind(res, data.frame(sample=i, n=nrow(tmp), r=as.numeric(pp$estimate), pval=pp$p.value))
+}
+
+print(res)
+
+```
